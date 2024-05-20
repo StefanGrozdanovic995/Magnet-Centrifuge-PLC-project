@@ -1,0 +1,161 @@
+TYPE EventSeverity :(  Verbose  := 0, Info,  Error, Warning, Critical ); END_TYPE
+TYPE EventType : ( Message := 0, Alarm ); END_TYPE
+
+TYPE ST_Event :
+STRUCT
+	EventType 	: EventType;
+	EventSeverity 	: EventSeverity;
+	EventIdentity 	: UDINT;
+	EventText	: STRING(255);
+	TimeStamp	: DATE_AND_TIME;
+END_STRUCT
+END_TYPE
+
+PROGRAM PLC_PRG
+VAR
+	EventType_1 		: EventType 		:= EventType.Alarm;
+	EventSeverity_1 	: EventSeverity	 := EventSeverity.Warning;
+	EventIdentity_1 	: UDINT 		:= 23;
+	EventText_1		    : STRING(255) 	:= 'The sensor value is high';
+	
+	EventType_2 		: EventType 		:= EventType.Alarm;
+	EventSeverity_2 	: EventSeverity 	:= EventSeverity.Critical;
+	EventIdentity_2 	: UDINT 		:= 21;
+	EventText_2		    : STRING(255) 	:= 'The sensor value is critically high';
+	
+	EventType_3 		: EventType 	:= EventType.Message;
+	EventSeverity_3 	: EventSeverity := EventSeverity.Info;
+	EventIdentity_3 	: UDINT 		:= 11;
+	EventText_3			: STRING(255) 	:= 'The sensor value is in range';
+	
+	EventLogger : EventLogger; 
+	
+	WriteEvent1 : BOOL := FALSE;
+	WriteEvent2 : BOOL := FALSE;
+	WriteEvent3 : BOOL := FALSE;
+	
+	writeTextTest : WriteFile_Tutorial;
+END_VAR
+
+IF WriteEvent1 THEN
+	WriteEvent1 := FALSE;
+	EventLogger.AddEvent(in_EventType	  := EventType_1,
+				in_EventSeverity  := EventSeverity_1,
+				in_EventIdentity  := EventIdentity_1,
+				in_EventText	  := EventText_1);
+END_IF
+
+IF WriteEvent2 THEN
+	WriteEvent2 := FALSE;
+	EventLogger.AddEvent(in_EventType	  := EventType_2,
+				  in_EventSeverity  := EventSeverity_2,
+						in_EventIdentity  := EventIdentity_2,
+						in_EventText	  := EventText_2);
+END_IF
+
+IF WriteEvent3 THEN
+	WriteEvent3 := FALSE;
+	EventLogger.AddEvent(in_EventType	  := EventType_3,
+				in_EventSeverity  := EventSeverity_3,
+				in_EventIdentity  := EventIdentity_3,
+				in_EventText	  := EventText_3);
+END_IF
+
+
+writeTextTest();
+
+FUNCTION_BLOCK EventLogger
+VAR
+	EventBuffer : ARRAY[1..MAXIMUM_SIZE_OF_EVENT_BUFFER] OF ST_Event;
+	CurrentEventBufferIndex : INT := 0;
+END_VAR
+VAR CONSTANT
+	MAXIMUM_SIZE_OF_EVENT_BUFFER : INT := 100;
+END_VAR
+
+(*Returns TRUE if Add is sucessful and returns FALSE if buffer is full*)
+METHOD PUBLIC AddEvent : BOOL
+VAR_INPUT
+		in_EventType 		: EventType;
+		in_EventSeverity 	: EventSeverity;
+		in_EventIdentity 	: UDINT;
+		in_EventText		: STRING(255);
+	
+		EventBufferIsFULL : BOOL := FALSE;
+END_VAR
+
+IsEventBufferFull(Q => EventBufferIsFULL); 
+
+IF NOT EventBufferIsFULL THEN
+	CurrentEventBufferIndex := CurrentEventBufferIndex + 1;
+	EventBuffer[CurrentEventBufferIndex].EventType		:= in_EventType;
+	EventBuffer[CurrentEventBufferIndex].EventSeverity	:= in_EventSeverity;
+	EventBuffer[CurrentEventBufferIndex].EventIdentity	:= in_EventIdentity;
+	EventBuffer[CurrentEventBufferIndex].EventText		:= in_EventText;
+	UpdateSystemTimestampWithCurrentTime(stEvent := EventBuffer[CurrentEventBufferIndex]);
+	AddEvent := TRUE;
+ELSE
+	AddEvent := FALSE;
+END_IF
+
+
+
+
+METHOD PRIVATE IsEventBufferFull : BOOL
+VAR_OUTPUT
+	Q : BOOL; // Q is TRUE if eventBuffer is FULL
+END_VAR
+//IsEventBufferFull := ((CurrentEventBufferIndex + 1) > MAXIMUM_SIZE_OF_EVENT_BUFFER);
+Q := ((CurrentEventBufferIndex + 1) > MAXIMUM_SIZE_OF_EVENT_BUFFER);
+
+FUNCTION UpdateSystemTimestampWithCurrentTime
+VAR_INPUT
+	stEvent : REFERENCE TO ST_EVENT;
+END_VAR
+VAR
+	UTC_DateAndTime : UDINT;
+   	 Local_DateAndTime : UDINT;
+   	 Result : UDINT;  
+END_VAR
+
+//get UTC date and time, store as UDINT
+UTC_DateAndTime := TO_UDINT(SysTimeRtcGet(Result)); // UDINT#1528268918
+
+// convert to local zone time, store as UDINT
+Result := SysTimeRTCConvertUTCToLocal(UTC_DateAndTime, Local_DateAndTime); // UDINT#1528276118
+
+//convert from UDINT to Date_AND_TIME data type
+stEvent.TimeStamp  := TO_DT(Local_DateAndTime); // DT#2018-6-6-9:8:38
+
+
+ 
+FUNCTION_BLOCK WriteFile_Tutorial
+VAR
+strFileName 		: STRING := 'CodesysTutorial2.txt'; //C:\ProgramData\CODESYS\Simulation\PlcLogic\CodesysTutorial.txt
+	strStringToWrite 	: STRING := 'This is a Tutorial 6 $N'; //$N new line control character
+	
+	stFileHandle		: SysFile.RTS_IEC_HANDLE;
+	stResult			: SysFile.RTS_IEC_RESULT;
+	
+	pbyBufferToWrite	: POINTER TO BYTE := ADR(strStringToWrite);
+	nSizeWritten		: __XWORD;
+	
+	bIsWritten			: BOOL;
+END_VAR
+
+IF NOT bIsWritten THEN
+	//Open File
+	stFileHandle := SysFileOpen(szFile := strFileName, am:= SysFile.AM_APPEND , pResult:=ADR(stResult));
+	
+	//Write File
+	nSizeWritten := SysFileWrite(hFile := stFileHandle, pbyBuffer:= pbyBufferToWrite
+								,ulSize:= TO___XWORD(LEN(strStringToWrite)),pResult := ADR(stResult));
+								
+	//Close File
+	stResult := SysFileClose(hFile:= stFileHandle);
+
+	IF nSizeWritten > 0 THEN
+		bIsWritten := TRUE;
+	END_IF
+
+END_IF
